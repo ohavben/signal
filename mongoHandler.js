@@ -81,7 +81,7 @@ const dbCommands = {
         .then(() => user.find(params).sort('-created').limit((params.limit)?params.limit:20))
         .then((users) => mongoose.connection.close())
         .then(() => resolve(users))
-        .catch((ERR) => reject(Error(err)))),
+        .catch((err) => reject(Error(err)))),
 
     create_Chat: (domain, params) => new Promise(( resolve, reject) =>
 
