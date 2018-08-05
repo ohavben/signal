@@ -2,7 +2,7 @@
 const App = require('./mongoHandler.js');
 const WebSocket = require('ws').Server;
 const wss = new WebSocket({ port: 4000 });
-const connections = {};
+const sockets = {};
 console.log('carousel app started')
 
 App.init('Carousel')
@@ -16,29 +16,30 @@ wss.on('connection', (ws, req) => {
 
     App.create_user(domain, { userName: 'Ohav' })
     .then((res) => {
-        console.log(`created user: ${res.user._id} and joind chat ${res.chat._id} / ${Object.keys(connections).length }`)
-
+        
         ws.user_id = res.user._id;
         ws.userName = res.user.userName;
-        connections[res.user._id] = ws;
+        sockets[res.user._id] = ws;
 
         ws.send(JSON.stringify({
             type:'registration successful',
             user_id: res.user._id,
             chat: res.chat
         }));
+        console.log(`new user: ${res.user._id} on ${res.chat._id} / ${Object.keys(sockets).length } `)
 
         return broadcast(JSON.stringify({
             type:'new user joined',
             user:res.user
         }) , res.chat.users , res.user._id)
 
-    }).catch((err) => console.log(`user not created` , err))
+    })
+    .catch((err) => console.log(`user not created` , err))
  
 
     ws.on('disconnect', () => {
-        delete connections[ws.user_id];
-        console.log(`user ${ws.user_id} left ${Object.keys(connections).length } users left`)
+        delete sockets[ws.user_id];
+        console.log(`user ${ws.user_id} left ${Object.keys(sockets).length } users left`)
 
         App.delete_user(domain, ws.user_id)
         .then((response) => response.chats.forEach((chat) => 
@@ -53,8 +54,8 @@ wss.on('connection', (ws, req) => {
     });
 
     ws.on('close', (reasonCodews, description) => {
-        delete connections[ws.user_id];
-        console.log(`user ${ws.user_id} left ${Object.keys(connections).length } users left`)
+        delete sockets[ws.user_id];
+        console.log(`user ${ws.user_id} left ${Object.keys(sockets).length } users left`)
 
         App.delete_user(domain, ws.user_id)
         .then((response) => response.chats.forEach((chat) => 
@@ -74,54 +75,74 @@ wss.on('connection', (ws, req) => {
         switch(data.type){
 
             case 'search for chats': 
-            return App.search_for_chats(domain, title).then((chats) => {
-                return connections[ws.user_id].send(JSON.stringify({
+            return App.search_for_chats(domain, message.data.search)
+                .then((chats) => sockets[ws.user_id].send(JSON.stringify({
                     type:'search for chats',
                     data: chats
-                }))
-            }).catch((err)=>console.log('Error: ',err));
+                })))
+                .catch((err)=>console.log('Error: ',err));
 
             case 'new text message': 
-            return App.get_all_chat_users(domain, chat_id).then((users)=>{
-                return connections[ws.user_id].send(JSON.stringify({
-                    type:'search for chats',
-                    data: chats
-                }))
-            }).catch((err)=>console.log('Error: ',err));
+            return App.get_chat_by_id(domain, message.data.chat_id) 
+                .then((chat) => broadcast(JSON.stringify({ 
+                    type: 'new text message',
+                    msg: message 
+                }) , chat.users , message.from.user_id))
+                .catch((err)=>console.log('Error: ',err));
 
-            case 'crate new chat': return App.create_Chat(domain, params).then((res)=>{
-                    
-            }).catch((err)=>console.log('Error: ',err));
+            case 'crate new chat': 
+            return App.create_Chat(domain, message.data.params)
+                .then((chat) => sockets[ws._user.id].send(JSON.stringify({
+                    type:'new chat created',
+                    chat: chat
+                })))
+                .catch((err)=>console.log('Error: ',err));
 
-            case 'delete chat': return App.create_Chat(domain, chat_id).then((res)=>{
-                    
-            }).catch((err)=>console.log('Error: ',err));
+            case 'delete chat': 
+            return App.delete_Chat(domain, message.data.chat_id)
+                .then((chat)=> {
+                    sockets[ws._user.id].send(JSON.stringify({
+                        type:'chat deleted',
+                        chat: chat.id
+                    }));
+
+                    return broadcast(JSON.stringify({ 
+                        type: 'chat deleted',
+                        msg: chat.id 
+                    }) , chat.users , message.from.user_id)
+                }).catch((err)=>console.log('Error: ',err));
 
             case 'join chat': 
-            return App.join_chat(domain, chat._id, ws.user_id)
+            return App.join_chat(domain, message.data.chat._id, ws.user_id)
                 .then((response) => broadcast(JSON.stringify({ 
                     type: 'user joined',
                     id: ws.user_id, 
                     userName: ws.userName
-                }) , response.chat.users , ws.user_id))
+                }) , response.chat.users , message.from.user_id))
                 .catch((err) => console.log('ERROR: user didnt join chat ' , err))
 
             case 'leave chat': 
-            return App.leave_chat(domain, chat._id, ws.user_id)
+            return App.leave_chat(domain, message.data.chat._id, ws.user_id)
                 .then((response) => broadcast(JSON.stringify({ 
                     type: 'user left',
                     id: ws.user_id, 
                     userName: ws.userName
-                }) , response.chat.users , ws.user_id))
+                }) , response.chat.users , message.from.user_id))
                 .catch((err) => console.log('ERROR: user didnt leave chat ' , err))
 
-            case 'private chat invite': return App.private_chat_invite(domain, chat_id).then((res)=>{
-                    
-            }).catch((err)=>console.log('Error: ',err));
+            case 'private chat invite': 
+            return App.private_chat_invite(domain, message.data.user_id)
+                .then((res)=>{
+                        
+                })
+                .catch((err)=>console.log('Error: ',err));
 
-            case 'private_chat_accepted': return App.private_chat_response(domain, chat_id).then((res)=>{
-                    
-            }).catch((err)=>console.log('Error: ',err));
+            case 'private_chat_accepted': 
+            return App.private_chat_response(domain, message.data.user_id)
+                .then((res)=>{
+                        
+                })
+                .catch((err)=>console.log('Error: ',err));
 
             default: return
         }
@@ -130,16 +151,16 @@ wss.on('connection', (ws, req) => {
 
 function broadcast(message , to , by){
     return to.filter((id) => id !== by).forEach((user) => 
-        (connections[user].readyState == 1) ? 
-            connections[user].send(message) : 
-            console.log(`broadcasting to ${connections[user]._id} failed .socket disconnected`));
+        (sockets[user].readyState == 1) ? 
+            sockets[user].send(message) : 
+            console.log(`broadcasting to ${sockets[user]._id} failed .socket disconnected`));
 }
 
 
 /* ******************************************************* */
 
 function originIsAllowed(origin) {
-    let allowed_connections = ['localhost:4000','Carousel']
-    if (allowed_connections.includes(origin)) return true
+    let allowed_sockets = ['localhost:4000','Carousel']
+    if (allowed_sockets.includes(origin)) return true
     return false;
 }
