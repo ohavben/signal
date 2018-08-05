@@ -1,62 +1,70 @@
 'use strict';
-const mongo = require('./mongo command.js');
+const App = require('./mongoHandler.js');
 const WebSocket = require('ws').Server;
 const wss = new WebSocket({ port: 4000 });
 const connections = {};
 console.log('carousel app started')
 
+App.init('Carousel')
+    .then((res) => console.log(`db intitated: ${res}`))
+    .catch((err) => console.log(`db Not initiated: ${err}`))
+
 wss.on('connection', (ws, req) => {
 
     let domain = (req.headers.host == 'localhost:4000') ? 'Carousel' : req.headers.host;
     if (!originIsAllowed(domain)) ws.terminate();
- 
-    mongo.create_user(domain, { userName: 'Ohav' })
+
+    App.create_user(domain, { userName: 'Ohav' })
     .then((res) => {
-        ws.user_id = res._id;
-        ws.userName = res.userName;
-        connections[res._id] = ws;
-        mongo.initiate_db(domain, res._id)
-        .then((res)=>{
-            console.log(`user: ${res.user} joind chat ${res.chat._id}`)
-            let message_to_broadcast = { type:'new user join chat' , data: res.chat.userName }
-            let message_to_new_user = { type: 'new chat' , data: res.chat}
-            ws.send(JSON.stringify(message_to_new_user))
-            return broadcast(message_to_broadcast , res.chat.users , ws.user_id)
-        }).catch((err)=> console.log(err))
-    })
-    .catch((err)=> console.log('user not created ' , err));
+        console.log(`created user: ${res.user._id} and joind chat ${res.chat._id}   ${Object.keys(connections).length } users on`)
+
+        ws.user_id = res.user._id;
+        ws.userName = res.user.userName;
+        connections[res.user._id] = ws;
+
+        ws.send(JSON.stringify({
+            type:'registration successful',
+            user_id: res.user._id,
+            chat: res.chat
+        }));
+
+        return broadcast(JSON.stringify({
+            type:'new user joined',
+            user:res.user
+        }) , res.chat.users , res.user._id)
+
+    }).catch((err) => console.log(`user not created` , err))
+ 
 
     ws.on('disconnect', () => {
-        mongo.delete_user(domain, ws.user_id)
-        .then((res) => {
-            console.log(`user ${ws.user_id} deleted `)
-            res.forEach(chat => {
-                mongo.leave_chat(domain, chat._id, ws.user_id)
-                .then((res)=>{
-                    let message = { type: `user_left_the_chat`, userName: connections[ws.user_id].userName };
-                    delete connections[ws.user_id];
-                    return broadcast(message, res.users , ws.user_id) 
-                })
-                .catch((err)=> console.log(`ERROR: user ${ws.user_id} NOT purged from chat ${chat._id}  ` , err ))
-            });
-        })
+        delete connections[ws.user_id];
+        console.log(`user ${ws.user_id} left ${Object.keys(connections).length } users left`)
+
+        App.delete_user(domain, ws.user_id)
+        .then((response) => response.chats.forEach((chat) => 
+            App.leave_chat(domain, chat._id, ws.user_id)
+            .then((response) => broadcast(JSON.stringify({ 
+                type: 'user left',
+                id: ws.user_id, 
+                userName: ws.userName
+            }) , response.chat.users , ws.user_id))
+            .catch((err) => console.log('ERROR: user didnt leave chat ' , err))))
         .catch((err)=> console.log('user not deleted:' , err))
     });
 
-    ws.on('close', (reasonCode, description) => {
-        mongo.delete_user(domain, ws.user_id)
-        .then((res) => {
-            console.log(`user ${ws.user_id} deleted `)
-            res.forEach(chat => {
-                mongo.leave_chat(domain, chat._id, ws.user_id)
-                .then((res)=>{
-                    let message = { type: `user_left_the_chat`, userName: connections[ws.user_id].userName };
-                    delete connections[ws.user_id];
-                    return broadcast(message, res.users , ws.user_id) 
-                })
-                .catch((err)=> console.log(`ERROR: user ${ws.user_id} NOT purged from chat ${chat._id}  ` , err ))
-            });
-        })
+    ws.on('close', (reasonCodews, description) => {
+        delete connections[ws.user_id];
+        console.log(`user ${ws.user_id} left ${Object.keys(connections).length } users left`)
+
+        App.delete_user(domain, ws.user_id)
+        .then((response) => response.chats.forEach((chat) => 
+            App.leave_chat(domain, chat._id, ws.user_id)
+            .then((response) => broadcast(JSON.stringify({ 
+                type: 'user left',
+                id: ws.user_id, 
+                userName: ws.userName
+            }) , response.chat.users , ws.user_id))
+            .catch((err) => console.log('ERROR: user didnt leave chat ' , err))))
         .catch((err)=> console.log('user not deleted:' , err))
     });
 
@@ -65,32 +73,64 @@ wss.on('connection', (ws, req) => {
         //console.log(data.type)
         switch(data.type){
 
-            case 'register_user': return ;
+            case 'search for chats': 
+            return App.search_for_chats(domain, title).then((chats) => {
+                return connections[ws.user_id].send(JSON.stringify({
+                    type:'search for chats',
+                    data: chats
+                }))
+            }).catch((err)=>console.log('Error: ',err));
 
-            case 'join_public_chat': return ;
+            case 'new text message': 
+            return App.get_all_chat_users(domain, chat_id).then((users)=>{
+                return connections[ws.user_id].send(JSON.stringify({
+                    type:'search for chats',
+                    data: chats
+                }))
+            }).catch((err)=>console.log('Error: ',err));
 
-            case 'leave_chat': return ;
+            case 'crate new chat': return App.create_Chat(domain, params).then((res)=>{
+                    
+            }).catch((err)=>console.log('Error: ',err));
 
-            case 'search_for_chats': return ;
+            case 'delete chat': return App.create_Chat(domain, chat_id).then((res)=>{
+                    
+            }).catch((err)=>console.log('Error: ',err));
 
-            case 'new_text_message': return ;
+            case 'join chat': 
+            return App.join_chat(domain, chat._id, ws.user_id)
+                .then((response) => broadcast(JSON.stringify({ 
+                    type: 'user joined',
+                    id: ws.user_id, 
+                    userName: ws.userName
+                }) , response.chat.users , ws.user_id))
+                .catch((err) => console.log('ERROR: user didnt join chat ' , err))
 
-            case 'request_public_chat': return;
+            case 'leave chat': 
+            return App.leave_chat(domain, chat._id, ws.user_id)
+                .then((response) => broadcast(JSON.stringify({ 
+                    type: 'user left',
+                    id: ws.user_id, 
+                    userName: ws.userName
+                }) , response.chat.users , ws.user_id))
+                .catch((err) => console.log('ERROR: user didnt leave chat ' , err))
 
-            case 'request_private_chat': return;
+            case 'private chat invite': return App.private_chat_invite(domain, chat_id).then((res)=>{
+                    
+            }).catch((err)=>console.log('Error: ',err));
 
-            case 'accept_private_chat': return;
+            case 'private_chat_accepted': return App.private_chat_response(domain, chat_id).then((res)=>{
+                    
+            }).catch((err)=>console.log('Error: ',err));
 
             default: return
         }
-    });
+    })
 });
 
 function broadcast(message , to , by){
-    return to.forEach((user) => {
-        if(!connections[user] || connections[user].user_id == by) return 
-        return connections[user].send(JSON.stringify(message))
-    })
+    return to.filter((id) => id !== by).forEach((user) => 
+        (connections[user].readyState == 1) ? connections[user].send(message) : console.log(`broadcasting to ${connections[user]._id} failed .socket disconnected`));
 }
 
 
