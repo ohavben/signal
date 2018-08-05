@@ -16,7 +16,7 @@ wss.on('connection', (ws, req) => {
 
     App.create_user(domain, { userName: 'Ohav' })
     .then((res) => {
-        console.log(`created user: ${res.user._id} and joind chat ${res.chat._id}   ${Object.keys(connections).length } users on`)
+        console.log(`created user: ${res.user._id} and joind chat ${res.chat._id} / ${Object.keys(connections).length }`)
 
         ws.user_id = res.user._id;
         ws.userName = res.user.userName;
@@ -130,7 +130,9 @@ wss.on('connection', (ws, req) => {
 
 function broadcast(message , to , by){
     return to.filter((id) => id !== by).forEach((user) => 
-        (connections[user].readyState == 1) ? connections[user].send(message) : console.log(`broadcasting to ${connections[user]._id} failed .socket disconnected`));
+        (connections[user].readyState == 1) ? 
+            connections[user].send(message) : 
+            console.log(`broadcasting to ${connections[user]._id} failed .socket disconnected`));
 }
 
 
