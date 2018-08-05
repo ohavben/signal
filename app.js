@@ -1,7 +1,51 @@
 'use strict';
+const http = require('http');
+const url = require('url');
+const fs = require('fs');
+const path = require('path');
+const port = process.argv[2] || 8000;
+
+const server = http.createServer((req, res) => {
+   
+    const parsedUrl = url.parse(req.url);
+    let pathname = `.${parsedUrl.pathname}`;
+    const mimeType = {
+        '.ico': 'image/x-icon',
+        '.html': 'text/html',
+        '.js': 'text/javascript',       
+        '.json': 'application/json'
+    };
+
+    fs.exists(pathname, (exist) => {
+        if(!exist) {
+            res.statusCode = 404;
+            res.end(`File ${pathname} not found!`);
+            return;
+        }
+        if (fs.statSync(pathname).isDirectory()) {
+            pathname += '/index.html';
+        }
+        fs.readFile(pathname, (err, data) => {
+            if(err){
+                res.statusCode = 500;
+                res.end(`Error getting the file: ${err}.`);
+            } else {
+                const ext = path.parse(pathname).ext;
+                res.setHeader('Content-type', mimeType[ext] || 'text/plain' );//'Cache-Control': 'no-cache'
+                //res.setHeader('Cache-Control', 'max-age=0');
+                res.end(data);
+            }
+        });
+    });
+});
+
+server.listen(port, () => {
+    console.log((new Date()) +  `Server is listening on port ${port} `);
+});
+
 const App = require('./mongoHandler.js');
 const WebSocket = require('ws').Server;
-const wss = new WebSocket({ port: 4000 });
+const wss = new WebSocket({ server: server });
 const sockets = {};
 console.log('carousel app started')
 
@@ -11,7 +55,7 @@ App.init('Carousel')
 
 wss.on('connection', (ws, req) => {
 
-    let domain = (req.headers.host == 'localhost:4000') ? 'Carousel' : req.headers.host;
+    let domain = (req.headers.host == `localhost:${port}`) ? 'Carousel' : req.headers.host;
     if (!originIsAllowed(domain)) ws.terminate();
 
     App.create_user(domain, { userName: 'Ohav' })
